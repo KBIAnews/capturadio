@@ -199,9 +199,9 @@ Copyright: %(year)s %(station)s''',
                 if not config.has_option('feed', 'base_url'):
                     self.feed['base_url'] = config.get('feed', 'url')
                     config.set('feed', 'base_url', self.feed['base_url'])
-                    print("WARNING: Replaced setting 'feed.url' with 'feed.base_url' in configuration file.")
+                    logging.debug("WARNING: Replaced setting 'feed.url' with 'feed.base_url' in configuration file.")
                 else:
-                    print("WARNING: Removed setting 'feed.url' from configuration file.")
+                    logging.debug("WARNING: Removed setting 'feed.url' from configuration file.")
                 config.remove_option('feed', 'url')
                 Configuration.changed_settings = True
             if config.has_option('feed', 'title'):

@@ -146,6 +146,22 @@ Show program settings.
           else 'No shows defined')
 
 
+def config_check(args):
+    """Usage:
+    recorder config check
+
+Check program settings.
+    """
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(name)s - %(message)s')
+    handler.setFormatter(formatter)
+    logging.getLogger().addHandler(handler)
+    Configuration._loaded_from_disk = True
+    Configuration(reset=True)
+    logging.getLogger().removeHandler(handler)
+
+
 def config_update(args):
     """Usage:
     recorder config update
@@ -246,7 +262,7 @@ def find_command(args):
     if not args['help']:
         for command in ['feed', 'config', 'show']:
             if args[command]:
-                for action in ['list', 'update', 'capture', 'show', 'setup']:
+                for action in ['list', 'update', 'capture', 'show', 'setup', 'check']:
                     if args[action]:
                         return r'%s_%s' % (command, action)
     return 'help'
@@ -261,6 +277,7 @@ Usage:
     recorder.py show capture <show>
     recorder.py config list
     recorder.py config setup
+    recorder.py config check
     recorder.py config update
     recorder.py feed update
     recorder.py feed list
