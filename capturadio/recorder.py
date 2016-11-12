@@ -2,13 +2,15 @@ import datetime
 import logging
 import os
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen, Request
+from contextlib import closing
+
+import requests
+from mutagenx._id3frames import \
+    TIT2, TDRC, TCON, TALB, TLEN, TPE1, TCOP, COMM, TCOM, APIC
+from mutagenx.id3 import ID3
 
 from capturadio.config import Configuration
 from capturadio.entities import Episode
-from mutagenx._id3frames import TIT2, TDRC, TCON, TALB, TLEN, TPE1, TCOP, COMM, TCOM, APIC
-from mutagenx.id3 import ID3
 
 
 class Recorder(object):
@@ -25,30 +27,30 @@ class Recorder(object):
             raise e
 
     def _write_stream_to_file(self, episode):
-        not_ready = True
-
-        logging.debug("write {} to {}".format(episode.stream_url, episode.filename))
+        logging.debug("write {} to {}".format(
+            episode.stream_url, episode.filename
+        ))
+        starttimestamp = time.mktime(episode.starttime)
+        dirname = os.path.dirname(episode.filename)
         try:
-            dirname = os.path.dirname(episode.filename)
             if not os.path.isdir(dirname):
                 os.makedirs(dirname)
-
             with open(episode.filename, 'wb') as file:
-                stream = urlopen(episode.stream_url)
-                starttimestamp = time.mktime(episode.starttime)
-                while not_ready:
-                    try:
-                        file.write(stream.read(10240))
-                        if time.time() - starttimestamp > episode.duration:
-                            not_ready = False
-                    except KeyboardInterrupt:
-                        logging.warning('Capturing interupted.')
-                        not_ready = False
+                with closing(requests.get(episode.stream_url, stream=True)) as stream:
+                    episode.mimetype = stream.headers.get('content-type')
+                    for chunk in stream.iter_content(chunk_size=1024):
+                        if chunk:  # filter out keep-alive new chunks
+                            try:
+                                file.write(chunk)
+                                if time.time() - starttimestamp > episode.duration:
+                                    break
+                            except KeyboardInterrupt:
+                                logging.warning('Capturing interupted.')
+                                break
 
             episode.duration = time.time() - starttimestamp
             episode.duration_string = str(datetime.timedelta(seconds=episode.duration))
             episode.filesize = str(os.path.getsize(episode.filename))
-            episode.mimetype = 'audio/mpeg'
             return episode
 
         except UnicodeDecodeError as e:
@@ -56,7 +58,7 @@ class Recorder(object):
             os.remove(episode.filename)
             raise e
 
-        except HTTPError as e:
+        except requests.exceptions.RequestException as e:
             logging.error("Could not open URL {} ({:d}): {}".format(episode.stream_url, e.code, e.msg))
             os.remove(episode.filename)
             raise e
@@ -111,24 +113,19 @@ class Recorder(object):
         # APIC part taken from http://mamu.backmeister.name/praxis-tipps/pythonmutagen-audiodateien-mit-bildern-versehen/
         url = episode.logo_url
         if url is not None:
-            request = Request(url)
-            request.get_method = lambda: 'HEAD'
             try:
-                response = urlopen(request)
-                logo_type = response.getheader('Content-Type')
-
-                if logo_type in ['image/jpeg', 'image/png']:
-                    img_data = urlopen(url).read()
+                h = requests.head(url)
+                logo_type = h.headers.get('content-type')
+                if logo_type in ['image/jpeg', 'image/png', 'image/gif']:
+                    response = requests.get(url)
                     img = APIC(
                         encoding=3,  # 3 is for utf-8
                         mime=logo_type,
                         type=3,  # 3 is for the cover image
                         desc=u'Station logo',
-                        data=img_data
+                        data=response.content
                     )
                     audio.add(img)
-            except (HTTPError, URLError) as e:
-                message = "Error during capturing %s - %s" % (url, e)
-                logging.error(message)
             except Exception as e:
-                raise e
+                message = "Error during embedding logo %s - %s" % (url, e)
+                logging.error(message)
